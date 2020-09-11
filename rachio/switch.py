@@ -19,6 +19,7 @@ from .const import (
     KEY_CUSTOM_CROP,
     KEY_CUSTOM_SHADE,
     KEY_CUSTOM_SLOPE,
+    KEY_DEPTH_OF_WATER,
     KEY_DEVICE_ID,
     KEY_DURATION,
     KEY_ENABLED,
@@ -36,7 +37,8 @@ from .const import (
     KEY_ZONE_NUMBER,
     SCHEDULE_TYPE_FIXED,
     SCHEDULE_TYPE_FLEX,
-    SERVICE_SET_ZONE_MOISTURE,
+    SERVICE_SET_ZONE_MOISTURE_LEVEL,
+    SERVICE_SET_ZONE_MOISTURE_PERCENT,
     SIGNAL_RACHIO_CONTROLLER_UPDATE,
     SIGNAL_RACHIO_RAIN_DELAY_UPDATE,
     SIGNAL_RACHIO_SCHEDULE_UPDATE,
@@ -62,11 +64,14 @@ from .webhooks import (
 
 _LOGGER = logging.getLogger(__name__)
 
+ATTR_LEVEL = "level"
 ATTR_PERCENT = "percent"
+ATTR_METRIC = "metric"
 ATTR_SCHEDULE_SUMMARY = "Summary"
 ATTR_SCHEDULE_ENABLED = "Enabled"
 ATTR_SCHEDULE_DURATION = "Duration"
 ATTR_SCHEDULE_TYPE = "Type"
+ATTR_ZONE_DEPTH_OF_WATER = "Max moisture level"
 ATTR_ZONE_NUMBER = "Zone number"
 ATTR_ZONE_SHADE = "Shade"
 ATTR_ZONE_SLOPE = "Slope"
@@ -85,18 +90,27 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     async_add_entities(entities)
     _LOGGER.info("%d Rachio switch(es) added", len(entities))
+    _LOGGER.debug(hass.config.units.name)
 
     platform = entity_platform.current_platform.get()
+    
     if has_flex_sched:
         platform.async_register_entity_service(
-            SERVICE_SET_ZONE_MOISTURE,
+            SERVICE_SET_ZONE_MOISTURE_PERCENT,
             {vol.Required(ATTR_PERCENT): cv.positive_int},
             "set_moisture_percent",
+        )
+
+        platform.async_register_entity_service(
+            SERVICE_SET_ZONE_MOISTURE_LEVEL,
+            {vol.Required(ATTR_LEVEL): vol.Range(min=0)},
+            "set_moisture_level",
         )
 
 
 def _create_entities(hass, config_entry):
     entities = []
+    units = hass.config.units.name
     person = hass.data[DOMAIN_RACHIO][config_entry.entry_id]
     # Fetch the schedule once at startup
     # in order to avoid every zone doing it
@@ -108,7 +122,7 @@ def _create_entities(hass, config_entry):
         flex_schedules = controller.list_flex_schedules()
         current_schedule = controller.current_schedule
         for zone in zones:
-            entities.append(RachioZone(person, controller, zone, current_schedule))
+            entities.append(RachioZone(person, controller, zone, current_schedule, units))
         for sched in schedules + flex_schedules:
             entities.append(RachioSchedule(person, controller, sched, current_schedule))
     _LOGGER.debug("Added %s", entities)
@@ -286,7 +300,7 @@ class RachioRainDelay(RachioSwitch):
 class RachioZone(RachioSwitch):
     """Representation of one zone of sprinklers connected to the Rachio Iro."""
 
-    def __init__(self, person, controller, data, current_schedule):
+    def __init__(self, person, controller, data, current_schedule, units):
         """Initialize a new Rachio Zone."""
         self._id = data[KEY_ID]
         self._zone_name = data[KEY_NAME]
@@ -294,11 +308,13 @@ class RachioZone(RachioSwitch):
         self._zone_enabled = data[KEY_ENABLED]
         self._entity_picture = data.get(KEY_IMAGE_URL)
         self._person = person
+        self._depth_of_water = data[KEY_DEPTH_OF_WATER]
         self._shade_type = data.get(KEY_CUSTOM_SHADE, {}).get(KEY_NAME)
         self._zone_type = data.get(KEY_CUSTOM_CROP, {}).get(KEY_NAME)
         self._slope_type = data.get(KEY_CUSTOM_SLOPE, {}).get(KEY_NAME)
         self._summary = ""
         self._current_schedule = current_schedule
+        self._units = units
         super().__init__(controller)
 
     def __str__(self):
@@ -352,6 +368,10 @@ class RachioZone(RachioSwitch):
                 props[ATTR_ZONE_SLOPE] = "Moderate"
             elif self._slope_type == SLOPE_STEEP:
                 props[ATTR_ZONE_SLOPE] = "Steep"
+        if self._units == "metric":
+            props[ATTR_ZONE_DEPTH_OF_WATER] = self._depth_of_water * 10
+        else: 
+            props[ATTR_ZONE_DEPTH_OF_WATER] = self._depth_of_water
         return props
 
     def turn_on(self, **kwargs) -> None:
@@ -381,6 +401,23 @@ class RachioZone(RachioSwitch):
         """Set the zone moisture percent."""
         _LOGGER.debug("Setting %s moisture to %s percent", self._zone_name, percent)
         self._controller.rachio.zone.setMoisturePercent(self._id, percent / 100)
+
+    def set_moisture_level(self, level) -> None:
+        """Set the zone moisture level."""
+        if self._units == "metric":
+            level = level * 25.4
+        _LOGGER.debug(level)
+        if level > self._depth_of_water:
+            _LOGGER.debug(
+                "Maximum moisture level cannot exceed %s, setting to max",
+                self._depth_of_water,
+            )
+            self._controller.rachio.zone.setMoistureLevel(
+                self._id, self._depth_of_water
+            )
+        else:
+            _LOGGER.debug("Setting %s moisture level to %s", self._zone_name, level)
+            self._controller.rachio.zone.setMoistureLevel(self._id, float(level))
 
     @callback
     def _async_handle_update(self, *args, **kwargs) -> None:
@@ -456,9 +493,7 @@ class RachioSchedule(RachioSwitch):
         """Start this schedule."""
         self._controller.rachio.schedulerule.start(self._schedule_id)
         _LOGGER.debug(
-            "Schedule %s started on %s",
-            self.name,
-            self._controller.name,
+            "Schedule %s started on %s", self.name, self._controller.name,
         )
 
     def turn_off(self, **kwargs) -> None:
