@@ -1,0 +1,33 @@
+set_zone_moisture_percent:
+  description: Set the moisture percentage of a zone or group of zones.
+  fields:
+    entity_id:
+      description: Name of the zone entity. Can also be a group of zones. [Required]
+      example: "switch.front_yard"
+    percent:
+      description: Set the desired zone moisture percentage from 0 to 100. [Required]
+      example: 50
+set_zone_moisture_level:
+  description: Set the moisture level of a zone or group of zones.
+  fields:
+    entity_id:
+      description: Name of the zone entity. Can also be a group of zones. [Required]
+      example: "switch.front_yard"
+    level:
+      description: Set the desired zone moisture level from 0 to max moisture level in inches. This can be found in the switch attributes [Required]
+      example: 0.3
+pause_watering:
+    description: Pause any currently running zones or schedules.
+    fields:
+      devices:
+        description: Name of controllers to pause. Defaults to all controllers on the account if not provided. [Optional]
+        example: Main House        
+      duration:
+        description: The number of minutes to pause running schedules. Accepts 1-60. Default is 60 minutes. [Optional]
+        example: 30
+resume_watering:
+    description: Resume any paused zone runs or schedules.
+    fields:
+      devices:
+        description: Name of controllers to resume. Defaults to all controllers on the account if not provided. [Optional]
+        example: Main House 
