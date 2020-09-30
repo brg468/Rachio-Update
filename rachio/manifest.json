@@ -2,7 +2,7 @@
   "domain": "rachio",
   "name": "Rachio",
   "documentation": "https://www.home-assistant.io/integrations/rachio",
-  "requirements": ["git+https://github.com/brg468/rachiopy.git@add-device-pause-resume#rachiopy==0.1.5"],
+  "requirements": ["git+https://github.com/brg468/rachiopy.git@Switch-to-Requests#rachiopy==0.1.5"],
   "dependencies": ["http"],
   "after_dependencies": ["cloud"],
   "codeowners": ["@bdraco"],

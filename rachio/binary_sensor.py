@@ -5,6 +5,7 @@ import logging
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASS_CONNECTIVITY,
     DEVICE_CLASS_MOISTURE,
+    DEVICE_CLASS_POWER,
     BinarySensorEntity,
 )
 from homeassistant.core import callback
@@ -18,6 +19,7 @@ from .const import (
     KEY_SUBTYPE,
     SIGNAL_RACHIO_CONTROLLER_UPDATE,
     SIGNAL_RACHIO_RAIN_SENSOR_UPDATE,
+    SIGNAL_RACHIO_SCHEDULE_UPDATE,
     STATUS_ONLINE,
 )
 from .entity import RachioDevice
@@ -27,6 +29,9 @@ from .webhooks import (
     SUBTYPE_ONLINE,
     SUBTYPE_RAIN_SENSOR_DETECTION_OFF,
     SUBTYPE_RAIN_SENSOR_DETECTION_ON,
+    SUBTYPE_SCHEDULE_COMPLETED,
+    SUBTYPE_SCHEDULE_STARTED,
+    SUBTYPE_SCHEDULE_STOPPED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,8 +47,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 def _create_entities(hass, config_entry):
     entities = []
     for controller in hass.data[DOMAIN_RACHIO][config_entry.entry_id].controllers:
+        current_schedule = controller.current_schedule
         entities.append(RachioControllerOnlineBinarySensor(controller))
         entities.append(RachioRainSensor(controller))
+        entities.append(RachioWateringState(controller, current_schedule))
     return entities
 
 
@@ -166,5 +173,58 @@ class RachioRainSensor(RachioControllerBinarySensor):
                 self.hass,
                 SIGNAL_RACHIO_RAIN_SENSOR_UPDATE,
                 self._async_handle_any_update,
+            )
+        )
+
+
+class RachioWateringState(RachioControllerBinarySensor):
+    """Represent a binary sensor that reflects the current running state of the controller."""
+
+    def __init__(self, controller, current_schedule):
+        """Set up the watering state sensor."""
+        super().__init__(controller)
+        self._current_schedule = current_schedule
+
+    @property
+    def name(self) -> str:
+        """Return the name of this sensor including the controller name."""
+        return f"{self._controller.name} watering"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a unique id for this entity."""
+        return f"{self._controller.controller_id}-watering"
+
+    @property
+    def device_class(self) -> str:
+        """Return the class of this device."""
+        return DEVICE_CLASS_POWER
+
+    @property
+    def icon(self) -> str:
+        """Return the icon for this sensor."""
+        return "mdi:water" if self.is_on else "mdi:water-off"
+
+    @callback
+    def _async_handle_update(self, *args, **kwargs) -> None:
+        """Handle an update to the state of this sensor."""
+        if args[0][0][KEY_SUBTYPE] == SUBTYPE_SCHEDULE_STARTED:
+            self._state = True
+        elif (
+            args[0][0][KEY_SUBTYPE] == SUBTYPE_SCHEDULE_COMPLETED
+            or args[0][0][KEY_SUBTYPE] == SUBTYPE_SCHEDULE_STOPPED
+        ):
+            self._state = False
+
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self):
+        """Subscribe to updates."""
+        if self._current_schedule:
+            self._state = True
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_RACHIO_SCHEDULE_UPDATE, self._async_handle_any_update,
             )
         )

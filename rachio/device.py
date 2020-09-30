@@ -88,10 +88,8 @@ class RachioPerson:
             self._controllers.append(rachio_iro)
             all_devices.append(rachio_iro.name)
             # Generation 1 controllers don't support pause or resume
-            _LOGGER.info("Using model %s", rachio_iro.model.split("_")[0])
             if not rachio_iro.model.split("_")[0] == MODEL_GENERATION_1:
                 can_pause = True
-                _LOGGER.info("Adding Pause/Resume Service")
 
         _LOGGER.info('Using Rachio API as user "%s"', self.username)
 

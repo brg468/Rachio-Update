@@ -58,6 +58,7 @@ from .webhooks import (
     SUBTYPE_SLEEP_MODE_OFF,
     SUBTYPE_SLEEP_MODE_ON,
     SUBTYPE_ZONE_COMPLETED,
+    SUBTYPE_ZONE_PAUSED,
     SUBTYPE_ZONE_STARTED,
     SUBTYPE_ZONE_STOPPED,
 )
@@ -93,7 +94,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     _LOGGER.debug(hass.config.units.name)
 
     platform = entity_platform.current_platform.get()
-    
+
     if has_flex_sched:
         platform.async_register_entity_service(
             SERVICE_SET_ZONE_MOISTURE_PERCENT,
@@ -122,7 +123,9 @@ def _create_entities(hass, config_entry):
         flex_schedules = controller.list_flex_schedules()
         current_schedule = controller.current_schedule
         for zone in zones:
-            entities.append(RachioZone(person, controller, zone, current_schedule, units))
+            entities.append(
+                RachioZone(person, controller, zone, current_schedule, units)
+            )
         for sched in schedules + flex_schedules:
             entities.append(RachioSchedule(person, controller, sched, current_schedule))
     _LOGGER.debug("Added %s", entities)
@@ -370,7 +373,7 @@ class RachioZone(RachioSwitch):
                 props[ATTR_ZONE_SLOPE] = "Steep"
         if self._units == "metric":
             props[ATTR_ZONE_DEPTH_OF_WATER] = self._depth_of_water * 10
-        else: 
+        else:
             props[ATTR_ZONE_DEPTH_OF_WATER] = self._depth_of_water
         return props
 
@@ -429,7 +432,11 @@ class RachioZone(RachioSwitch):
 
         if args[0][KEY_SUBTYPE] == SUBTYPE_ZONE_STARTED:
             self._state = True
-        elif args[0][KEY_SUBTYPE] in [SUBTYPE_ZONE_STOPPED, SUBTYPE_ZONE_COMPLETED]:
+        elif args[0][KEY_SUBTYPE] in [
+            SUBTYPE_ZONE_STOPPED,
+            SUBTYPE_ZONE_COMPLETED,
+            SUBTYPE_ZONE_PAUSED,
+        ]:
             self._state = False
 
         self.async_write_ha_state()
